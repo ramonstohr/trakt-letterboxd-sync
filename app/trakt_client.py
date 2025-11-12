@@ -105,15 +105,15 @@ class TraktClient:
                         since = None
 
                 if since:
-                    # Ensure UTC timezone and format with Z
+                    # Ensure UTC timezone
                     if since.tzinfo:
                         since_utc = since.astimezone(timezone.utc)
                     else:
                         since_utc = since.replace(tzinfo=timezone.utc)
 
-                    # Trakt expects ISO 8601 with Z
-                    start_at = since_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
-                    logger.info(f"Syncing movies since: {start_at}")
+                    # Pass datetime object directly (trakt.py v4.4.0 expects datetime, not string)
+                    start_at = since_utc
+                    logger.info(f"Syncing movies since: {since_utc.isoformat(timespec='seconds').replace('+00:00', 'Z')}")
 
             # Get watched movies with history
             watched = Trakt['sync/history'].movies(
@@ -171,6 +171,13 @@ class TraktClient:
             # Extract IDs (ids is an object with attributes, not a dict)
             ids = movie.ids if hasattr(movie, 'ids') else None
 
+            # Debug: Log what we got from Trakt
+            movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
+            logger.debug(f"Processing movie: {movie_title}")
+            logger.debug(f"  - ids object type: {type(ids)}")
+            logger.debug(f"  - ids object: {ids}")
+            logger.debug(f"  - ids dir: {dir(ids) if ids else 'None'}")
+
             # Get IDs - try dict access first, then attribute access
             trakt_id = None
             imdb_id = None
@@ -194,8 +201,10 @@ class TraktClient:
                         imdb_id = getattr(ids, 'imdb', None)
                         tmdb_id = getattr(ids, 'tmdb', None)
 
+            logger.debug(f"  - Extracted IDs: trakt={trakt_id}, imdb={imdb_id}, tmdb={tmdb_id}")
+
             return {
-                'title': movie.title if hasattr(movie, 'title') else 'Unknown',
+                'title': movie_title,
                 'year': movie.year if hasattr(movie, 'year') else None,
                 'trakt_id': trakt_id,
                 'imdb_id': imdb_id,
@@ -204,7 +213,7 @@ class TraktClient:
                 'rating': None  # Will be populated separately
             }
         except Exception as e:
-            logger.error(f"Error extracting movie data: {e}")
+            logger.error(f"Error extracting movie data: {e}", exc_info=True)
             return None
 
     def test_connection(self) -> bool:
