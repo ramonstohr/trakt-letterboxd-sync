@@ -153,8 +153,15 @@ class TraktClient:
     def test_connection(self) -> bool:
         """Test if the Trakt API connection is working"""
         try:
-            # Try to fetch a small amount of data
-            Trakt['sync/history'].movies(limit=1)
+            # Try to fetch watched history (just check if API responds)
+            # Get the generator/iterator but don't fully consume it
+            history = Trakt['sync/history'].movies()
+            # Try to get first item to verify connection works
+            try:
+                next(iter(history))
+            except StopIteration:
+                # Empty history is fine, connection works
+                pass
             logger.info("Trakt API connection test successful")
             return True
         except Exception as e:
