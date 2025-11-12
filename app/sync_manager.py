@@ -32,6 +32,13 @@ class SyncManager:
                 logger.warning("Trakt credentials not configured")
                 return
 
+            # Debug logging
+            logger.info(f"Initializing Trakt client with credentials:")
+            logger.info(f"  - client_id: {'SET' if client_id else 'MISSING'}")
+            logger.info(f"  - client_secret: {'SET' if client_secret else 'MISSING'}")
+            logger.info(f"  - access_token: {'SET' if access_token else 'MISSING'}")
+            logger.info(f"  - refresh_token: {'SET' if refresh_token else 'MISSING'}")
+
             self.trakt_client = TraktClient(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -39,7 +46,7 @@ class SyncManager:
                 refresh_token=refresh_token
             )
 
-            logger.info("Trakt client initialized")
+            logger.info("Trakt client initialized successfully")
 
         except Exception as e:
             logger.error(f"Error initializing Trakt client: {e}")
@@ -206,6 +213,9 @@ class SyncManager:
             # Save tokens to config
             self.config.set('trakt', 'access_token', value=access_token)
             self.config.set('trakt', 'refresh_token', value=refresh_token)
+
+            # Reinitialize Trakt client with new tokens
+            self._initialize_trakt_client()
 
             logger.info("Trakt authentication completed successfully")
             return True

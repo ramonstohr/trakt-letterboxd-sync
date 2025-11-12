@@ -20,18 +20,28 @@ class TraktClient:
 
     def _configure_trakt(self):
         """Configure Trakt API client"""
+        # Configure client credentials
         Trakt.configuration.defaults.client(
             id=self.client_id,
             secret=self.client_secret
         )
 
-        # Set tokens if available
+        # Configure HTTP settings
+        Trakt.configuration.defaults.http(
+            retry=True,
+            timeout=30
+        )
+
+        # Set OAuth tokens if available
         if self.access_token:
-            Trakt.configuration.defaults.oauth.from_response({
-                'access_token': self.access_token,
-                'refresh_token': self.refresh_token,
-                'token_type': 'bearer'
-            })
+            # Properly configure OAuth with all required fields
+            Trakt.configuration.defaults.oauth(
+                token=self.access_token,
+                refresh_token=self.refresh_token
+            )
+            logger.info("OAuth tokens configured for Trakt API")
+        else:
+            logger.warning("No access token available - authentication required")
 
     def authenticate(self, redirect_uri='urn:ietf:wg:oauth:2.0:oob'):
         """
