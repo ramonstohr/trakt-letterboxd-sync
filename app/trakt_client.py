@@ -92,9 +92,24 @@ class TraktClient:
         try:
             logger.info("Fetching watched movies from Trakt")
 
+            # Convert since to ISO format if provided
+            start_at = None
+            if since:
+                # Ensure since is a datetime object
+                if isinstance(since, str):
+                    try:
+                        since = datetime.fromisoformat(since)
+                    except Exception as e:
+                        logger.error(f"Failed to parse since parameter: {e}")
+                        since = None
+
+                if since:
+                    start_at = since.isoformat()
+                    logger.info(f"Syncing movies since: {start_at}")
+
             # Get watched movies with history
             watched = Trakt['sync/history'].movies(
-                start_at=since.isoformat() if since else None
+                start_at=start_at
             )
 
             movies_list = []

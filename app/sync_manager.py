@@ -121,8 +121,17 @@ class SyncManager:
         # Check for last sync time
         last_sync = self.config.get_last_sync_time()
         if last_sync:
-            logger.info(f"Last sync was at {last_sync}")
-            return last_sync
+            # Ensure it's a datetime object, not a string
+            if isinstance(last_sync, str):
+                try:
+                    last_sync = datetime.fromisoformat(last_sync)
+                except Exception as e:
+                    logger.error(f"Failed to parse last_sync string: {e}")
+                    last_sync = None
+
+            if last_sync:
+                logger.info(f"Last sync was at {last_sync}")
+                return last_sync
 
         # Check for configured start date
         start_date_str = self.config.get('sync', 'start_date')

@@ -113,7 +113,11 @@ class ConfigManager:
             if os.path.exists(last_sync_file):
                 with open(last_sync_file, 'r') as f:
                     timestamp = f.read().strip()
-                    return datetime.fromisoformat(timestamp)
+                    if timestamp:
+                        # Parse the ISO format timestamp to datetime
+                        dt = datetime.fromisoformat(timestamp)
+                        logger.debug(f"Loaded last sync time: {dt}")
+                        return dt
         except Exception as e:
             logger.error(f"Error reading last sync time: {e}")
         return None
