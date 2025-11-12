@@ -2,7 +2,7 @@
 import logging
 import requests
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from bs4 import BeautifulSoup
 import re
 
@@ -18,15 +18,104 @@ class LetterboxdClient:
         self.username = username
         self.password = password
         self.session = requests.Session()
+        # Realistic browser headers
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
             'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
         })
         self.csrf_token = None
         self.logged_in = False
+
+    def _find_csrf_token(self, soup: BeautifulSoup, response: requests.Response) -> Optional[str]:
+        """
+        Find CSRF token from multiple possible sources
+
+        Args:
+            soup: BeautifulSoup parsed HTML
+            response: Original response object
+
+        Returns:
+            CSRF token string or None
+        """
+        # 1. Check hidden input fields (common names)
+        csrf_names = ['csrfmiddlewaretoken', '_csrf', '__csrf', '_token',
+                      'authenticity_token', '__RequestVerificationToken', 'csrf_token']
+
+        for name in csrf_names:
+            csrf_input = soup.find('input', {'name': name})
+            if csrf_input and csrf_input.get('value'):
+                token = csrf_input.get('value')
+                logger.debug(f"Found CSRF token in input[name='{name}']: {token[:20]}...")
+                return token
+
+        # 2. Check meta tag
+        csrf_meta = soup.find('meta', {'name': 'csrf-token'})
+        if csrf_meta and csrf_meta.get('content'):
+            token = csrf_meta.get('content')
+            logger.debug(f"Found CSRF token in meta tag: {token[:20]}...")
+            return token
+
+        # 3. Check cookies
+        if 'csrftoken' in response.cookies:
+            token = response.cookies['csrftoken']
+            logger.debug(f"Found CSRF token in cookie: {token[:20]}...")
+            return token
+
+        if 'csrf_token' in response.cookies:
+            token = response.cookies['csrf_token']
+            logger.debug(f"Found CSRF token in cookie: {token[:20]}...")
+            return token
+
+        logger.warning("Could not find CSRF token in any location")
+        return None
+
+    def _parse_login_form(self, soup: BeautifulSoup) -> Tuple[Optional[str], Optional[Dict]]:
+        """
+        Parse login form to extract action URL and hidden fields
+
+        Args:
+            soup: BeautifulSoup parsed HTML
+
+        Returns:
+            Tuple of (form_action_url, hidden_fields_dict)
+        """
+        # Find the login form
+        form = soup.find('form', {'class': lambda x: x and 'login' in x.lower() if x else False})
+        if not form:
+            # Try generic form with username/password fields
+            form = soup.find('form')
+
+        if not form:
+            logger.error("Could not find login form on page")
+            return None, None
+
+        # Get form action
+        action = form.get('action', '/user/login.do')
+        if not action.startswith('http'):
+            action = self.BASE_URL + action
+
+        logger.debug(f"Form action: {action}")
+
+        # Extract all hidden fields
+        hidden_fields = {}
+        for hidden in form.find_all('input', type='hidden'):
+            name = hidden.get('name')
+            value = hidden.get('value', '')
+            if name:
+                hidden_fields[name] = value
+                logger.debug(f"Hidden field: {name} = {value[:50] if value else '(empty)'}...")
+
+        return action, hidden_fields
 
     def login(self) -> bool:
         """
@@ -38,66 +127,117 @@ class LetterboxdClient:
         try:
             logger.info(f"Logging in to Letterboxd as {self.username}")
 
-            # Step 1: Get login page to extract CSRF token
-            # Letterboxd uses /sign-in/ for the login page
-            login_page_url = f"{self.BASE_URL}/sign-in/"
-            response = self.session.get(login_page_url)
+            # Step 1: GET login page with proper headers
+            sign_in_url = f"{self.BASE_URL}/sign-in/"
+            self.session.headers.update({
+                'Referer': self.BASE_URL,
+            })
+
+            response = self.session.get(sign_in_url, allow_redirects=True)
 
             if response.status_code != 200:
                 logger.error(f"Failed to load login page: {response.status_code}")
+                logger.debug(f"Response URL: {response.url}")
                 return False
 
-            # Parse CSRF token from the login form
+            logger.info(f"Loaded login page successfully (final URL: {response.url})")
+
+            # Parse the HTML
             soup = BeautifulSoup(response.text, 'html.parser')
-            csrf_input = soup.find('input', {'name': '__csrf'})
 
-            if not csrf_input:
-                logger.error("Could not find CSRF token on login page")
-                # Try alternative: look for meta tag
-                csrf_meta = soup.find('meta', {'name': 'csrf-token'})
-                if csrf_meta:
-                    self.csrf_token = csrf_meta.get('content')
-                    logger.debug(f"Got CSRF token from meta tag: {self.csrf_token[:20]}...")
-                else:
-                    logger.error("Could not find CSRF token in any form")
-                    return False
-            else:
-                self.csrf_token = csrf_input.get('value')
-                logger.debug(f"Got CSRF token from input: {self.csrf_token[:20]}...")
+            # Check for bot challenge / Turnstile
+            if 'turnstile' in response.text.lower() or 'challenge' in response.text.lower():
+                logger.error("Bot challenge detected (Cloudflare Turnstile or similar)")
+                logger.debug("Page contains anti-bot protection")
+                return False
 
-            # Step 2: Submit login form
-            login_data = {
-                '__csrf': self.csrf_token,
+            # Step 2: Find CSRF token
+            self.csrf_token = self._find_csrf_token(soup, response)
+
+            if not self.csrf_token:
+                logger.error("Could not find CSRF token - dumping page info")
+                logger.debug(f"Page title: {soup.title.string if soup.title else 'No title'}")
+                logger.debug(f"Forms found: {len(soup.find_all('form'))}")
+                # Dump first 500 chars of HTML for debugging
+                logger.debug(f"HTML sample: {response.text[:500]}")
+                return False
+
+            # Step 3: Parse login form
+            form_action, hidden_fields = self._parse_login_form(soup)
+
+            if not form_action:
+                logger.error("Could not parse login form")
+                return False
+
+            # Step 4: Build login data (merge hidden fields + credentials)
+            login_data = hidden_fields.copy()
+            login_data.update({
                 'username': self.username,
                 'password': self.password,
-                'authenticationCode': '',  # For 2FA, currently not supported
-            }
+                'authenticationCode': '',  # For 2FA
+            })
 
-            response = self.session.post(login_page_url, data=login_data, allow_redirects=True)
+            # Ensure CSRF token is in the data (might be in hidden fields already)
+            if self.csrf_token and '__csrf' not in login_data:
+                login_data['__csrf'] = self.csrf_token
 
-            # Check if login was successful
+            logger.debug(f"Login data keys: {list(login_data.keys())}")
+
+            # Step 5: Submit login with proper headers
+            self.session.headers.update({
+                'Referer': sign_in_url,
+                'Origin': self.BASE_URL,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            })
+
+            # Add CSRF token to headers if found in meta tag
+            csrf_meta = soup.find('meta', {'name': 'csrf-token'})
+            if csrf_meta:
+                self.session.headers['X-CSRF-Token'] = csrf_meta.get('content')
+
+            response = self.session.post(form_action, data=login_data, allow_redirects=True)
+
+            logger.info(f"Login POST completed: {response.status_code} (final URL: {response.url})")
+
+            # Step 6: Verify login success
+            # Check if we're redirected to homepage or profile
             if response.status_code == 200:
-                # Verify we're logged in by checking for username in response
-                if self.username.lower() in response.text.lower():
-                    logger.info("Successfully logged in to Letterboxd")
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Look for signed-in indicators
+                signed_in_indicators = [
+                    soup.find('a', {'class': lambda x: x and 'avatar' in x.lower() if x else False}),
+                    soup.find('nav', {'class': lambda x: x and 'signed-in' in x.lower() if x else False}),
+                    self.username.lower() in response.text.lower(),
+                    'sign out' in response.text.lower(),
+                ]
+
+                if any(signed_in_indicators):
+                    logger.info("✓ Successfully logged in to Letterboxd")
                     self.logged_in = True
 
-                    # Update CSRF token from response if present
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    csrf_input = soup.find('input', {'name': '__csrf'})
-                    if csrf_input:
-                        self.csrf_token = csrf_input.get('value')
+                    # Update CSRF token from new page
+                    new_csrf = self._find_csrf_token(soup, response)
+                    if new_csrf:
+                        self.csrf_token = new_csrf
 
                     return True
                 else:
-                    logger.error("Login failed - invalid credentials")
+                    logger.error("Login appeared to succeed but cannot verify signed-in state")
+                    logger.debug(f"Checking for error messages...")
+
+                    # Look for error messages
+                    error_div = soup.find('div', {'class': lambda x: x and 'error' in x.lower() if x else False})
+                    if error_div:
+                        logger.error(f"Error message: {error_div.get_text(strip=True)}")
+
                     return False
             else:
-                logger.error(f"Login request failed: {response.status_code}")
+                logger.error(f"Login failed with status {response.status_code}")
                 return False
 
         except Exception as e:
-            logger.error(f"Error during login: {e}")
+            logger.error(f"Error during login: {e}", exc_info=True)
             return False
 
     def get_film_id_from_tmdb(self, tmdb_id: str) -> Optional[str]:
