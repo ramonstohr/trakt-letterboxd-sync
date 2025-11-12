@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, jsonify, send_file, redirect,
 from functools import wraps
 from datetime import datetime
 import os
+import app
 
 logger = logging.getLogger(__name__)
 
@@ -11,13 +12,18 @@ logger = logging.getLogger(__name__)
 def create_app(config_manager, sync_manager, scheduler):
     """Create and configure Flask application"""
 
-    app = Flask(__name__)
-    app.secret_key = os.urandom(24)
+    flask_app = Flask(__name__)
+    flask_app.secret_key = os.urandom(24)
 
     # Store managers in app config
-    app.config['CONFIG_MANAGER'] = config_manager
-    app.config['SYNC_MANAGER'] = sync_manager
-    app.config['SCHEDULER'] = scheduler
+    flask_app.config['CONFIG_MANAGER'] = config_manager
+    flask_app.config['SYNC_MANAGER'] = sync_manager
+    flask_app.config['SCHEDULER'] = scheduler
+
+    # Make version available in all templates
+    @flask_app.context_processor
+    def inject_version():
+        return dict(app_version=app.__version__)
 
     # Authentication decorator
     def login_required(f):
@@ -28,7 +34,7 @@ def create_app(config_manager, sync_manager, scheduler):
             return f(*args, **kwargs)
         return decorated_function
 
-    @app.route('/login', methods=['GET', 'POST'])
+    @flask_app.route('/login', methods=['GET', 'POST'])
     def login():
         """Login page"""
         if request.method == 'POST':
@@ -44,14 +50,14 @@ def create_app(config_manager, sync_manager, scheduler):
 
         return render_template('login.html')
 
-    @app.route('/logout')
+    @flask_app.route('/logout')
     def logout():
         """Logout"""
         session.pop('authenticated', None)
         flash('Logged out successfully', 'success')
         return redirect(url_for('login'))
 
-    @app.route('/')
+    @flask_app.route('/')
     @login_required
     def index():
         """Main dashboard"""
@@ -67,7 +73,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error loading dashboard: {e}")
             return render_template('error.html', error=str(e)), 500
 
-    @app.route('/api/sync', methods=['POST'])
+    @flask_app.route('/api/sync', methods=['POST'])
     @login_required
     def trigger_sync():
         """Trigger manual sync"""
@@ -82,7 +88,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error triggering sync: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
 
-    @app.route('/api/status')
+    @flask_app.route('/api/status')
     def get_status():
         """Get current status (public endpoint for healthcheck)"""
         try:
@@ -96,7 +102,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error getting status: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/status/detailed')
+    @flask_app.route('/api/status/detailed')
     @login_required
     def get_detailed_status():
         """Get detailed status (requires authentication)"""
@@ -115,7 +121,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error getting status: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/exports')
+    @flask_app.route('/api/exports')
     @login_required
     def list_exports():
         """List recent CSV exports"""
@@ -135,7 +141,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error listing exports: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/exports/<filename>')
+    @flask_app.route('/api/exports/<filename>')
     @login_required
     def download_export(filename):
         """Download CSV export"""
@@ -156,7 +162,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error downloading export: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/config', methods=['GET', 'POST'])
+    @flask_app.route('/api/config', methods=['GET', 'POST'])
     @login_required
     def manage_config():
         """Get or update configuration"""
@@ -194,7 +200,7 @@ def create_app(config_manager, sync_manager, scheduler):
                 logger.error(f"Error updating config: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
-    @app.route('/api/auth/trakt/start', methods=['POST'])
+    @flask_app.route('/api/auth/trakt/start', methods=['POST'])
     @login_required
     def start_trakt_auth():
         """Start Trakt OAuth flow"""
@@ -206,7 +212,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error starting Trakt auth: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/auth/trakt/complete', methods=['POST'])
+    @flask_app.route('/api/auth/trakt/complete', methods=['POST'])
     @login_required
     def complete_trakt_auth():
         """Complete Trakt OAuth flow"""
@@ -224,7 +230,7 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error completing Trakt auth: {e}")
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/api/scheduler/toggle', methods=['POST'])
+    @flask_app.route('/api/scheduler/toggle', methods=['POST'])
     @login_required
     def toggle_scheduler():
         """Start/stop scheduler"""
@@ -246,4 +252,4 @@ def create_app(config_manager, sync_manager, scheduler):
             logger.error(f"Error toggling scheduler: {e}")
             return jsonify({'error': str(e)}), 500
 
-    return app
+    return flask_app
