@@ -95,15 +95,25 @@ class TraktClient:
             # Convert since to ISO format for Trakt API if provided
             start_at = None
             if since:
-                # Ensure UTC timezone and format with Z
-                if since.tzinfo:
-                    since_utc = since.astimezone(timezone.utc)
-                else:
-                    since_utc = since.replace(tzinfo=timezone.utc)
+                # Ensure since is a datetime object (defensive check)
+                if isinstance(since, str):
+                    # Parse string to datetime if needed
+                    from app.config_manager import parse_dt
+                    since = parse_dt(since)
+                    if not since:
+                        logger.warning("Could not parse since parameter as datetime, ignoring")
+                        since = None
 
-                # Trakt expects ISO 8601 with Z
-                start_at = since_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
-                logger.info(f"Syncing movies since: {start_at}")
+                if since:
+                    # Ensure UTC timezone and format with Z
+                    if since.tzinfo:
+                        since_utc = since.astimezone(timezone.utc)
+                    else:
+                        since_utc = since.replace(tzinfo=timezone.utc)
+
+                    # Trakt expects ISO 8601 with Z
+                    start_at = since_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
+                    logger.info(f"Syncing movies since: {start_at}")
 
             # Get watched movies with history
             watched = Trakt['sync/history'].movies(
@@ -158,15 +168,38 @@ class TraktClient:
             if not movie:
                 return None
 
-            # Extract IDs
-            ids = movie.ids if hasattr(movie, 'ids') else {}
+            # Extract IDs (ids is an object with attributes, not a dict)
+            ids = movie.ids if hasattr(movie, 'ids') else None
+
+            # Get IDs - try dict access first, then attribute access
+            trakt_id = None
+            imdb_id = None
+            tmdb_id = None
+
+            if ids:
+                # Try dictionary access first
+                if isinstance(ids, dict):
+                    trakt_id = ids.get('trakt')
+                    imdb_id = ids.get('imdb')
+                    tmdb_id = ids.get('tmdb')
+                else:
+                    # Try attribute/bracket access (trakt.py uses special dict-like objects)
+                    try:
+                        trakt_id = ids['trakt'] if 'trakt' in ids else getattr(ids, 'trakt', None)
+                        imdb_id = ids['imdb'] if 'imdb' in ids else getattr(ids, 'imdb', None)
+                        tmdb_id = ids['tmdb'] if 'tmdb' in ids else getattr(ids, 'tmdb', None)
+                    except (KeyError, TypeError):
+                        # Fallback to attribute access only
+                        trakt_id = getattr(ids, 'trakt', None)
+                        imdb_id = getattr(ids, 'imdb', None)
+                        tmdb_id = getattr(ids, 'tmdb', None)
 
             return {
                 'title': movie.title if hasattr(movie, 'title') else 'Unknown',
                 'year': movie.year if hasattr(movie, 'year') else None,
-                'trakt_id': ids.get('trakt'),
-                'imdb_id': ids.get('imdb'),
-                'tmdb_id': ids.get('tmdb'),
+                'trakt_id': trakt_id,
+                'imdb_id': imdb_id,
+                'tmdb_id': tmdb_id,
                 'watched_at': watched_at,
                 'rating': None  # Will be populated separately
             }
