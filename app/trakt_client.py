@@ -1,6 +1,6 @@
 """Trakt.tv API client"""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 import trakt
 from trakt import Trakt
@@ -92,20 +92,18 @@ class TraktClient:
         try:
             logger.info("Fetching watched movies from Trakt")
 
-            # Convert since to ISO format if provided
+            # Convert since to ISO format for Trakt API if provided
             start_at = None
             if since:
-                # Ensure since is a datetime object
-                if isinstance(since, str):
-                    try:
-                        since = datetime.fromisoformat(since)
-                    except Exception as e:
-                        logger.error(f"Failed to parse since parameter: {e}")
-                        since = None
+                # Ensure UTC timezone and format with Z
+                if since.tzinfo:
+                    since_utc = since.astimezone(timezone.utc)
+                else:
+                    since_utc = since.replace(tzinfo=timezone.utc)
 
-                if since:
-                    start_at = since.isoformat()
-                    logger.info(f"Syncing movies since: {start_at}")
+                # Trakt expects ISO 8601 with Z
+                start_at = since_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
+                logger.info(f"Syncing movies since: {start_at}")
 
             # Get watched movies with history
             watched = Trakt['sync/history'].movies(

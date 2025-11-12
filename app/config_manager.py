@@ -2,10 +2,55 @@
 import os
 import yaml
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# ISO format strings for robust datetime parsing
+ISO_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S.%fZ",
+    "%Y-%m-%dT%H:%M:%SZ",
+    "%Y-%m-%dT%H:%M:%S.%f%z",
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%d",  # date only without time
+)
+
+def parse_dt(value):
+    """Parse str|datetime|None and return datetime|None (UTC-aware)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        s = value.strip()
+        # Convert 'Z' to %z-compliant format
+        s_z = s.replace("Z", "+00:00") if s.endswith("Z") else s
+        # Try fromisoformat first
+        try:
+            dt = datetime.fromisoformat(s_z)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+        # Fallback: try known formats
+        for fmt in ISO_FORMATS:
+            try:
+                if fmt.endswith("%z"):
+                    dt = datetime.strptime(s_z, fmt)
+                else:
+                    dt = datetime.strptime(s, fmt)
+                return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+    # Unknown format
+    return None
+
+def save_dt(path, dt):
+    """Save datetime to file in consistent ISO 8601 format with Z."""
+    dtu = parse_dt(dt) or datetime.now(timezone.utc)
+    # Consistent ISO 8601 with Z
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(dtu.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"))
 
 
 class ConfigManager:
@@ -111,11 +156,10 @@ class ConfigManager:
         last_sync_file = self.config['sync']['last_sync_file']
         try:
             if os.path.exists(last_sync_file):
-                with open(last_sync_file, 'r') as f:
-                    timestamp = f.read().strip()
-                    if timestamp:
-                        # Parse the ISO format timestamp to datetime
-                        dt = datetime.fromisoformat(timestamp)
+                with open(last_sync_file, 'r', encoding='utf-8') as f:
+                    timestamp_str = f.read()
+                    dt = parse_dt(timestamp_str)
+                    if dt:
                         logger.debug(f"Loaded last sync time: {dt}")
                         return dt
         except Exception as e:
@@ -124,14 +168,10 @@ class ConfigManager:
 
     def set_last_sync_time(self, timestamp=None):
         """Set the last sync timestamp"""
-        if timestamp is None:
-            timestamp = datetime.now()
-
         last_sync_file = self.config['sync']['last_sync_file']
         try:
-            with open(last_sync_file, 'w') as f:
-                f.write(timestamp.isoformat())
-            logger.info(f"Last sync time updated: {timestamp}")
+            save_dt(last_sync_file, timestamp or datetime.now(timezone.utc))
+            logger.info(f"Last sync time updated: {timestamp or 'now'}")
             return True
         except Exception as e:
             logger.error(f"Error writing last sync time: {e}")

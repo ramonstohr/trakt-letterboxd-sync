@@ -1,10 +1,10 @@
 """Main sync orchestration"""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from app.trakt_client import TraktClient
 from app.letterboxd_csv import LetterboxdCSV
-from app.config_manager import ConfigManager
+from app.config_manager import ConfigManager, parse_dt
 
 logger = logging.getLogger(__name__)
 
@@ -118,30 +118,21 @@ class SyncManager:
 
     def _get_sync_start_date(self) -> Optional[datetime]:
         """Get the date to start syncing from"""
-        # Check for last sync time
+        # Check for last sync time (already parsed by config_manager)
         last_sync = self.config.get_last_sync_time()
         if last_sync:
-            # Ensure it's a datetime object, not a string
-            if isinstance(last_sync, str):
-                try:
-                    last_sync = datetime.fromisoformat(last_sync)
-                except Exception as e:
-                    logger.error(f"Failed to parse last_sync string: {e}")
-                    last_sync = None
-
-            if last_sync:
-                logger.info(f"Last sync was at {last_sync}")
-                return last_sync
+            logger.info(f"Last sync was at {last_sync}")
+            return last_sync
 
         # Check for configured start date
         start_date_str = self.config.get('sync', 'start_date')
         if start_date_str:
-            try:
-                start_date = datetime.fromisoformat(start_date_str)
+            start_date = parse_dt(start_date_str)
+            if start_date:
                 logger.info(f"Using configured start date: {start_date}")
                 return start_date
-            except Exception as e:
-                logger.warning(f"Invalid start_date in config: {e}")
+            else:
+                logger.warning(f"Invalid start_date in config: {start_date_str}")
 
         # No start date - will sync all history
         logger.info("No start date found - will sync all history")
