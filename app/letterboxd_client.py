@@ -158,11 +158,31 @@ class LetterboxdClient:
             if not html_text.strip().startswith('<'):
                 logger.error("Response is not HTML - possibly compressed or binary")
                 logger.debug(f"First 100 bytes: {html_text[:100]}")
-                # Try to decode manually if response.content looks like gzip
-                import gzip
+
+                # Check Content-Encoding header to determine compression type
+                content_encoding = response.headers.get('Content-Encoding', '').lower()
+
                 try:
-                    html_text = gzip.decompress(response.content).decode('utf-8')
-                    logger.info("Successfully decompressed gzip response manually")
+                    if content_encoding == 'br':
+                        # Brotli compression
+                        import brotli
+                        html_text = brotli.decompress(response.content).decode('utf-8')
+                        logger.info("Successfully decompressed Brotli response manually")
+                    elif content_encoding == 'gzip' or content_encoding == 'x-gzip':
+                        # Gzip compression
+                        import gzip
+                        html_text = gzip.decompress(response.content).decode('utf-8')
+                        logger.info("Successfully decompressed gzip response manually")
+                    else:
+                        # Try both as fallback
+                        import brotli
+                        try:
+                            html_text = brotli.decompress(response.content).decode('utf-8')
+                            logger.info("Successfully decompressed with Brotli (fallback)")
+                        except:
+                            import gzip
+                            html_text = gzip.decompress(response.content).decode('utf-8')
+                            logger.info("Successfully decompressed with gzip (fallback)")
                 except Exception as e:
                     logger.error(f"Could not decompress response: {e}")
                     return False
