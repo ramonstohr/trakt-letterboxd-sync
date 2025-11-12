@@ -62,7 +62,7 @@
 <script>
     // Auto-refresh status
     function loadStatus() {
-        fetch('/api/status')
+        fetch('/api/status/detailed')
             .then(response => response.json())
             .then(data => {
                 updateStatusDisplay(data);

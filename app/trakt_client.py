@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import trakt
 from trakt import Trakt
-from trakt.movies import Movie
 
 logger = logging.getLogger(__name__)
 

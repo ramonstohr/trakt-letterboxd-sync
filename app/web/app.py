@@ -83,9 +83,23 @@ def create_app(config_manager, sync_manager, scheduler):
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/status')
-    @login_required
     def get_status():
-        """Get current status"""
+        """Get current status (public endpoint for healthcheck)"""
+        try:
+            # Basic health check - just verify the app is running
+            return jsonify({
+                'status': 'ok',
+                'timestamp': datetime.now().isoformat()
+            })
+
+        except Exception as e:
+            logger.error(f"Error getting status: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/status/detailed')
+    @login_required
+    def get_detailed_status():
+        """Get detailed status (requires authentication)"""
         try:
             stats = sync_manager.get_sync_stats()
             scheduler_status = scheduler.get_status()
@@ -107,6 +121,14 @@ def create_app(config_manager, sync_manager, scheduler):
         """List recent CSV exports"""
         try:
             exports = sync_manager.letterboxd_csv.get_recent_exports(limit=20)
+
+            # Convert datetime objects to ISO format strings for JSON serialization
+            for export in exports:
+                if 'created' in export and isinstance(export['created'], datetime):
+                    export['created'] = export['created'].isoformat()
+                if 'modified' in export and isinstance(export['modified'], datetime):
+                    export['modified'] = export['modified'].isoformat()
+
             return jsonify({'exports': exports})
 
         except Exception as e:
