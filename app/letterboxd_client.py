@@ -247,7 +247,8 @@ class LetterboxdClient:
             logger.debug(f"Response Content-Type: {response.headers.get('Content-Type')}")
 
             # Step 6: Check if response is JSON (AJAX login)
-            if 'application/json' in response.headers.get('Content-Type', ''):
+            # Letterboxd uses text/json, not application/json
+            if 'json' in response.headers.get('Content-Type', '').lower():
                 try:
                     json_response = response.json()
                     logger.debug(f"Login response JSON: {json_response}")
