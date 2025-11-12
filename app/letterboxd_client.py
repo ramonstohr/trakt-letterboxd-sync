@@ -142,11 +142,36 @@ class LetterboxdClient:
 
             logger.info(f"Loaded login page successfully (final URL: {response.url})")
 
+            # Check response encoding
+            logger.debug(f"Response encoding: {response.encoding}")
+            logger.debug(f"Content-Type: {response.headers.get('Content-Type')}")
+            logger.debug(f"Content-Encoding: {response.headers.get('Content-Encoding')}")
+
+            # Ensure proper text decoding
+            if response.encoding is None:
+                response.encoding = 'utf-8'
+
+            # Get the HTML text
+            html_text = response.text
+
+            # Verify it's actual HTML
+            if not html_text.strip().startswith('<'):
+                logger.error("Response is not HTML - possibly compressed or binary")
+                logger.debug(f"First 100 bytes: {html_text[:100]}")
+                # Try to decode manually if response.content looks like gzip
+                import gzip
+                try:
+                    html_text = gzip.decompress(response.content).decode('utf-8')
+                    logger.info("Successfully decompressed gzip response manually")
+                except Exception as e:
+                    logger.error(f"Could not decompress response: {e}")
+                    return False
+
             # Parse the HTML
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(html_text, 'html.parser')
 
             # Check for bot challenge / Turnstile
-            if 'turnstile' in response.text.lower() or 'challenge' in response.text.lower():
+            if 'turnstile' in html_text.lower() or 'challenge' in html_text.lower():
                 logger.error("Bot challenge detected (Cloudflare Turnstile or similar)")
                 logger.debug("Page contains anti-bot protection")
                 return False
@@ -159,7 +184,7 @@ class LetterboxdClient:
                 logger.debug(f"Page title: {soup.title.string if soup.title else 'No title'}")
                 logger.debug(f"Forms found: {len(soup.find_all('form'))}")
                 # Dump first 500 chars of HTML for debugging
-                logger.debug(f"HTML sample: {response.text[:500]}")
+                logger.debug(f"HTML sample: {html_text[:500]}")
                 return False
 
             # Step 3: Parse login form
