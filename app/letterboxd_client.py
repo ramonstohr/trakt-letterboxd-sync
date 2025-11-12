@@ -38,24 +38,31 @@ class LetterboxdClient:
         try:
             logger.info(f"Logging in to Letterboxd as {self.username}")
 
-            # Step 1: Get CSRF token - POST to login page without credentials
-            login_page_url = f"{self.BASE_URL}/user/login.do"
-            response = self.session.post(login_page_url, data={})
+            # Step 1: Get login page to extract CSRF token
+            login_page_url = f"{self.BASE_URL}/user/login"  # Note: without .do
+            response = self.session.get(login_page_url)
 
             if response.status_code != 200:
-                logger.error(f"Failed to get CSRF token: {response.status_code}")
+                logger.error(f"Failed to load login page: {response.status_code}")
                 return False
 
-            # Parse CSRF token from the response
+            # Parse CSRF token from the login form
             soup = BeautifulSoup(response.text, 'html.parser')
             csrf_input = soup.find('input', {'name': '__csrf'})
 
             if not csrf_input:
-                logger.error("Could not find CSRF token in response")
-                return False
-
-            self.csrf_token = csrf_input.get('value')
-            logger.debug(f"Got CSRF token: {self.csrf_token[:20]}...")
+                logger.error("Could not find CSRF token on login page")
+                # Try alternative: look for meta tag
+                csrf_meta = soup.find('meta', {'name': 'csrf-token'})
+                if csrf_meta:
+                    self.csrf_token = csrf_meta.get('content')
+                    logger.debug(f"Got CSRF token from meta tag: {self.csrf_token[:20]}...")
+                else:
+                    logger.error("Could not find CSRF token in any form")
+                    return False
+            else:
+                self.csrf_token = csrf_input.get('value')
+                logger.debug(f"Got CSRF token from input: {self.csrf_token[:20]}...")
 
             # Step 2: Submit login form
             login_data = {
