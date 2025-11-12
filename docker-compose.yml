@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  trakt-letterboxd-sync:
+    build: .
+    container_name: trakt-letterboxd-sync
+    restart: unless-stopped
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      # Configuration file (create this from config.yaml.example)
+      - ./config/config.yaml:/app/config/config.yaml
+
+      # Data directory for exports and sync state
+      - ./data:/app/data
+
+      # Logs directory
+      - ./logs:/app/logs
+
+    environment:
+      - CONFIG_PATH=/app/config/config.yaml
+      - TZ=America/New_York  # Set your timezone
+
+    # Optional: Set resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

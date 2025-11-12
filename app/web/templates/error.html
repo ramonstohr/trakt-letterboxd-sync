@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h3 style="color: #e74c3c;">Error</h3>
+    <div class="alert alert-error">
+        <strong>An error occurred:</strong><br>
+        {{ error }}
+    </div>
+    <a href="/" class="btn">Back to Dashboard</a>
+</div>
+{% endblock %}

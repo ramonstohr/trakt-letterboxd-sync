@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h3>System Status</h3>
+    <div id="status-container">
+        <p>Loading status...</p>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Sync Control</h3>
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button onclick="triggerSync(false)" class="btn btn-success" id="incrementalSyncBtn">
+            <span id="incrementalSyncText">Incremental Sync</span>
+        </button>
+        <button onclick="triggerSync(true)" class="btn" id="fullSyncBtn">
+            <span id="fullSyncText">Full Sync</span>
+        </button>
+    </div>
+    <div id="sync-result" style="display: none;"></div>
+</div>
+
+<div class="card">
+    <h3>Scheduler</h3>
+    <div id="scheduler-info"></div>
+    <div style="margin-top: 15px;">
+        <button onclick="toggleScheduler('start')" class="btn btn-success" id="startSchedulerBtn">
+            Start Scheduler
+        </button>
+        <button onclick="toggleScheduler('stop')" class="btn btn-danger" id="stopSchedulerBtn">
+            Stop Scheduler
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Recent Exports</h3>
+    <div id="exports-list">
+        <p>Loading exports...</p>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Trakt Authentication</h3>
+    <div id="trakt-auth-info">
+        {% if config.trakt.access_token %}
+            <span class="status-badge status-success">Connected</span>
+            <p style="margin-top: 10px;">Trakt is authenticated and ready to use.</p>
+        {% else %}
+            <span class="status-badge status-warning">Not Authenticated</span>
+            <p style="margin-top: 10px;">You need to authenticate with Trakt to start syncing.</p>
+            <button onclick="startTraktAuth()" class="btn" style="margin-top: 10px;">
+                Authenticate with Trakt
+            </button>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-refresh status
+    function loadStatus() {
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                updateStatusDisplay(data);
+                updateSchedulerDisplay(data.scheduler);
+            })
+            .catch(error => {
+                console.error('Error loading status:', error);
+            });
+    }
+
+    function updateStatusDisplay(data) {
+        const container = document.getElementById('status-container');
+        const lastSync = data.stats.last_sync ? new Date(data.stats.last_sync).toLocaleString() : 'Never';
+        const traktStatus = data.connection.trakt ?
+            '<span class="status-badge status-success">Connected</span>' :
+            '<span class="status-badge status-error">Disconnected</span>';
+
+        container.innerHTML = `
+            <p><strong>Trakt Connection:</strong> ${traktStatus}</p>
+            <p><strong>Last Sync:</strong> ${lastSync}</p>
+            <p><strong>Recent Exports:</strong> ${data.stats.export_count}</p>
+        `;
+    }
+
+    function updateSchedulerDisplay(scheduler) {
+        const container = document.getElementById('scheduler-info');
+        const isRunning = scheduler.running;
+        const nextRun = scheduler.next_run ? new Date(scheduler.next_run).toLocaleString() : 'Not scheduled';
+
+        const statusBadge = isRunning ?
+            '<span class="status-badge status-success">Running</span>' :
+            '<span class="status-badge status-warning">Stopped</span>';
+
+        container.innerHTML = `
+            <p><strong>Status:</strong> ${statusBadge}</p>
+            <p><strong>Schedule:</strong> ${scheduler.schedule}</p>
+            <p><strong>Next Run:</strong> ${nextRun}</p>
+        `;
+
+        // Update button states
+        document.getElementById('startSchedulerBtn').disabled = isRunning;
+        document.getElementById('stopSchedulerBtn').disabled = !isRunning;
+    }
+
+    function triggerSync(fullSync) {
+        const btnId = fullSync ? 'fullSyncBtn' : 'incrementalSyncBtn';
+        const textId = fullSync ? 'fullSyncText' : 'incrementalSyncText';
+        const btn = document.getElementById(btnId);
+        const text = document.getElementById(textId);
+        const originalText = text.textContent;
+
+        btn.disabled = true;
+        text.innerHTML = '<span class="loading"></span> Syncing...';
+
+        fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_sync: fullSync })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const resultDiv = document.getElementById('sync-result');
+            resultDiv.style.display = 'block';
+
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        Sync completed successfully!<br>
+                        <strong>${data.movies_synced}</strong> movies synced<br>
+                        CSV exported to: ${data.csv_path}
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-error">
+                        Sync failed: ${data.error}
+                    </div>
+                `;
+            }
+
+            loadStatus();
+            loadExports();
+        })
+        .catch(error => {
+            const resultDiv = document.getElementById('sync-result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <div class="alert alert-error">
+                    Error: ${error.message}
+                </div>
+            `;
+        })
+        .finally(() => {
+            btn.disabled = false;
+            text.textContent = originalText;
+        });
+    }
+
+    function toggleScheduler(action) {
+        fetch('/api/scheduler/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadStatus();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+    }
+
+    function loadExports() {
+        fetch('/api/exports')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('exports-list');
+
+                if (data.exports && data.exports.length > 0) {
+                    let html = '<div style="max-height: 300px; overflow-y: auto;">';
+                    data.exports.forEach(exp => {
+                        const date = new Date(exp.modified).toLocaleString();
+                        const size = (exp.size / 1024).toFixed(2) + ' KB';
+                        html += `
+                            <div style="padding: 10px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${exp.filename}</strong><br>
+                                    <small>${date} - ${size}</small>
+                                </div>
+                                <a href="/api/exports/${exp.filename}" class="btn btn-secondary" style="padding: 8px 16px;">
+                                    Download
+                                </a>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p>No exports yet. Run a sync to create one!</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading exports:', error);
+            });
+    }
+
+    function startTraktAuth() {
+        fetch('/api/auth/trakt/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.auth_url) {
+                window.open(data.auth_url, '_blank');
+                const code = prompt('After authorizing, enter the PIN code:');
+                if (code) {
+                    completeTraktAuth(code);
+                }
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+    }
+
+    function completeTraktAuth(code) {
+        fetch('/api/auth/trakt/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Trakt authentication completed! Refreshing page...');
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+    }
+
+    // Load data on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadStatus();
+        loadExports();
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            loadStatus();
+        }, 30000);
+    });
+</script>
+{% endblock %}
