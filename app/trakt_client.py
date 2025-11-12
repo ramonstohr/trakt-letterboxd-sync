@@ -164,21 +164,32 @@ class TraktClient:
     def _extract_movie_data(self, history_item) -> Optional[Dict]:
         """Extract movie data from history item"""
         try:
+            # Debug: Log the raw history_item
+            logger.debug(f"Raw history_item type: {type(history_item)}")
+            logger.debug(f"Raw history_item: {history_item}")
+            logger.debug(f"history_item attributes: {dir(history_item)}")
+
             movie = history_item.movie if hasattr(history_item, 'movie') else history_item
             watched_at = history_item.watched_at if hasattr(history_item, 'watched_at') else None
 
             if not movie:
                 return None
 
+            # Debug: Log the movie object
+            movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
+            logger.debug(f"Processing movie: {movie_title}")
+            logger.debug(f"  - movie object type: {type(movie)}")
+            logger.debug(f"  - movie has 'ids': {hasattr(movie, 'ids')}")
+            logger.debug(f"  - movie attributes: {[attr for attr in dir(movie) if not attr.startswith('_')]}")
+
             # Extract IDs (ids is an object with attributes, not a dict)
             ids = movie.ids if hasattr(movie, 'ids') else None
 
             # Debug: Log what we got from Trakt
-            movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
-            logger.debug(f"Processing movie: {movie_title}")
             logger.debug(f"  - ids object type: {type(ids)}")
             logger.debug(f"  - ids object: {ids}")
-            logger.debug(f"  - ids dir: {dir(ids) if ids else 'None'}")
+            if ids:
+                logger.debug(f"  - ids attributes: {[attr for attr in dir(ids) if not attr.startswith('_')]}")
 
             # Get IDs - try dict access first, then attribute access
             trakt_id = None
