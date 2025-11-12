@@ -27,10 +27,11 @@ class TraktClient:
 
         # Set tokens if available
         if self.access_token:
-            Trakt.configuration.defaults.oauth(
-                token=self.access_token,
-                refresh_token=self.refresh_token
-            )
+            Trakt.configuration.defaults.oauth.from_response({
+                'access_token': self.access_token,
+                'refresh_token': self.refresh_token,
+                'token_type': 'bearer'
+            })
 
     def authenticate(self, redirect_uri='urn:ietf:wg:oauth:2.0:oob'):
         """
