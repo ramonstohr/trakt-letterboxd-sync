@@ -39,7 +39,8 @@ class LetterboxdClient:
             logger.info(f"Logging in to Letterboxd as {self.username}")
 
             # Step 1: Get login page to extract CSRF token
-            login_page_url = f"{self.BASE_URL}/user/login"  # Note: without .do
+            # Letterboxd uses /sign-in/ for the login page
+            login_page_url = f"{self.BASE_URL}/sign-in/"
             response = self.session.get(login_page_url)
 
             if response.status_code != 200:
