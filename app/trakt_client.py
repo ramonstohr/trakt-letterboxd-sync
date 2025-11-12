@@ -170,44 +170,24 @@ class TraktClient:
             if not movie:
                 return None
 
-            # Extract IDs - trakt.py v4.4.0 uses 'keys' not 'ids'
-            ids = movie.keys if hasattr(movie, 'keys') else None
+            # Extract IDs - trakt.py v4.4.0 uses 'keys' which returns a list of tuples
+            keys_list = movie.keys if hasattr(movie, 'keys') else None
 
             movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
 
-            # Debug: Log what keys returns
-            logger.debug(f"Movie '{movie_title}': keys type={type(ids)}, keys value={ids}")
-            if ids and callable(ids):
-                logger.debug(f"  keys is callable - trying to call it")
-                try:
-                    ids = ids()
-                    logger.debug(f"  keys() returned: {ids} (type: {type(ids)})")
-                except Exception as e:
-                    logger.debug(f"  Error calling keys(): {e}")
-                    ids = None
-
-            # Get IDs - try dict access first, then attribute access
+            # Convert list of tuples to dict
             trakt_id = None
             imdb_id = None
             tmdb_id = None
 
-            if ids:
-                # Try dictionary access first
-                if isinstance(ids, dict):
-                    trakt_id = ids.get('trakt')
-                    imdb_id = ids.get('imdb')
-                    tmdb_id = ids.get('tmdb')
-                else:
-                    # Try attribute/bracket access (trakt.py uses special dict-like objects)
-                    try:
-                        trakt_id = ids['trakt'] if 'trakt' in ids else getattr(ids, 'trakt', None)
-                        imdb_id = ids['imdb'] if 'imdb' in ids else getattr(ids, 'imdb', None)
-                        tmdb_id = ids['tmdb'] if 'tmdb' in ids else getattr(ids, 'tmdb', None)
-                    except (KeyError, TypeError):
-                        # Fallback to attribute access only
-                        trakt_id = getattr(ids, 'trakt', None)
-                        imdb_id = getattr(ids, 'imdb', None)
-                        tmdb_id = getattr(ids, 'tmdb', None)
+            if keys_list:
+                # keys is a list of tuples like [('imdb', 'tt123'), ('tmdb', '456'), ...]
+                # Convert to dict for easy access
+                ids = dict(keys_list) if isinstance(keys_list, list) else {}
+
+                trakt_id = ids.get('trakt')
+                imdb_id = ids.get('imdb')
+                tmdb_id = ids.get('tmdb')
 
             logger.debug(f"Extracted IDs for '{movie_title}': trakt={trakt_id}, imdb={imdb_id}, tmdb={tmdb_id}")
 
