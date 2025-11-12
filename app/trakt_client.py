@@ -175,6 +175,17 @@ class TraktClient:
 
             movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
 
+            # Debug: Log what keys returns
+            logger.debug(f"Movie '{movie_title}': keys type={type(ids)}, keys value={ids}")
+            if ids and callable(ids):
+                logger.debug(f"  keys is callable - trying to call it")
+                try:
+                    ids = ids()
+                    logger.debug(f"  keys() returned: {ids} (type: {type(ids)})")
+                except Exception as e:
+                    logger.debug(f"  Error calling keys(): {e}")
+                    ids = None
+
             # Get IDs - try dict access first, then attribute access
             trakt_id = None
             imdb_id = None
