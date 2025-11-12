@@ -164,32 +164,16 @@ class TraktClient:
     def _extract_movie_data(self, history_item) -> Optional[Dict]:
         """Extract movie data from history item"""
         try:
-            # Debug: Log the raw history_item
-            logger.debug(f"Raw history_item type: {type(history_item)}")
-            logger.debug(f"Raw history_item: {history_item}")
-            logger.debug(f"history_item attributes: {dir(history_item)}")
-
             movie = history_item.movie if hasattr(history_item, 'movie') else history_item
             watched_at = history_item.watched_at if hasattr(history_item, 'watched_at') else None
 
             if not movie:
                 return None
 
-            # Debug: Log the movie object
+            # Extract IDs - trakt.py v4.4.0 uses 'keys' not 'ids'
+            ids = movie.keys if hasattr(movie, 'keys') else None
+
             movie_title = movie.title if hasattr(movie, 'title') else 'Unknown'
-            logger.debug(f"Processing movie: {movie_title}")
-            logger.debug(f"  - movie object type: {type(movie)}")
-            logger.debug(f"  - movie has 'ids': {hasattr(movie, 'ids')}")
-            logger.debug(f"  - movie attributes: {[attr for attr in dir(movie) if not attr.startswith('_')]}")
-
-            # Extract IDs (ids is an object with attributes, not a dict)
-            ids = movie.ids if hasattr(movie, 'ids') else None
-
-            # Debug: Log what we got from Trakt
-            logger.debug(f"  - ids object type: {type(ids)}")
-            logger.debug(f"  - ids object: {ids}")
-            if ids:
-                logger.debug(f"  - ids attributes: {[attr for attr in dir(ids) if not attr.startswith('_')]}")
 
             # Get IDs - try dict access first, then attribute access
             trakt_id = None
@@ -214,7 +198,7 @@ class TraktClient:
                         imdb_id = getattr(ids, 'imdb', None)
                         tmdb_id = getattr(ids, 'tmdb', None)
 
-            logger.debug(f"  - Extracted IDs: trakt={trakt_id}, imdb={imdb_id}, tmdb={tmdb_id}")
+            logger.debug(f"Extracted IDs for '{movie_title}': trakt={trakt_id}, imdb={imdb_id}, tmdb={tmdb_id}")
 
             return {
                 'title': movie_title,
