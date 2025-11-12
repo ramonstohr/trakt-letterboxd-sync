@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from app.trakt_client import TraktClient
 from app.letterboxd_csv import LetterboxdCSV
+from app.letterboxd_client import LetterboxdClient
 from app.config_manager import ConfigManager, parse_dt
 
 logger = logging.getLogger(__name__)
@@ -15,10 +16,12 @@ class SyncManager:
     def __init__(self, config_manager: ConfigManager):
         self.config = config_manager
         self.trakt_client = None
+        self.letterboxd_client = None
         self.letterboxd_csv = LetterboxdCSV(
             export_path=config_manager.get('sync', 'export_path')
         )
         self._initialize_trakt_client()
+        self._initialize_letterboxd_client()
 
     def _initialize_trakt_client(self):
         """Initialize Trakt client with credentials"""
@@ -50,6 +53,26 @@ class SyncManager:
 
         except Exception as e:
             logger.error(f"Error initializing Trakt client: {e}")
+
+    def _initialize_letterboxd_client(self):
+        """Initialize Letterboxd client with credentials"""
+        try:
+            username = self.config.get('letterboxd', 'username')
+            password = self.config.get('letterboxd', 'password')
+
+            if not username or not password:
+                logger.info("Letterboxd credentials not configured - auto-upload disabled")
+                return
+
+            self.letterboxd_client = LetterboxdClient(
+                username=username,
+                password=password
+            )
+
+            logger.info("Letterboxd client initialized")
+
+        except Exception as e:
+            logger.error(f"Error initializing Letterboxd client: {e}")
 
     def sync(self, full_sync: bool = False) -> Dict:
         """
@@ -100,6 +123,24 @@ class SyncManager:
 
             # Generate Letterboxd CSV
             csv_path = self.letterboxd_csv.generate_csv(watched_movies)
+
+            # Auto-upload to Letterboxd if enabled
+            auto_upload = self.config.get('letterboxd', 'auto_upload', default=False)
+            upload_result = None
+
+            if auto_upload and self.letterboxd_client:
+                logger.info("Auto-upload enabled - uploading to Letterboxd")
+                try:
+                    upload_result = self.letterboxd_client.upload_movies(watched_movies)
+                    result['letterboxd_upload'] = upload_result
+                    logger.info(f"Letterboxd upload: {upload_result['success']} successful, "
+                              f"{upload_result['failed']} failed, {upload_result['skipped']} skipped")
+                except Exception as e:
+                    logger.error(f"Error during Letterboxd upload: {e}")
+                    result['letterboxd_upload_error'] = str(e)
+            elif auto_upload:
+                logger.warning("Auto-upload enabled but Letterboxd client not initialized")
+                result['letterboxd_upload_error'] = "Letterboxd credentials not configured"
 
             # Update last sync time
             self.config.set_last_sync_time()
