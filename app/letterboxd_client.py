@@ -243,8 +243,27 @@ class LetterboxdClient:
             response = self.session.post(form_action, data=login_data, allow_redirects=True)
 
             logger.info(f"Login POST completed: {response.status_code} (final URL: {response.url})")
+            logger.debug(f"Response size: {len(response.content)} bytes")
+            logger.debug(f"Response Content-Type: {response.headers.get('Content-Type')}")
 
-            # Step 6: Verify login success
+            # Step 6: Check if response is JSON (AJAX login)
+            if 'application/json' in response.headers.get('Content-Type', ''):
+                try:
+                    json_response = response.json()
+                    logger.debug(f"Login response JSON: {json_response}")
+
+                    if json_response.get('result') == 'success':
+                        logger.info("✓ Login successful (JSON response)")
+                        self.logged_in = True
+                        return True
+                    else:
+                        logger.error(f"Login failed: {json_response.get('messages', 'Unknown error')}")
+                        return False
+                except Exception as e:
+                    logger.error(f"Could not parse JSON response: {e}")
+                    return False
+
+            # Step 7: Verify login success for HTML response
             # Check if we're redirected to homepage or profile
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
