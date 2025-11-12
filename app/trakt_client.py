@@ -116,8 +116,10 @@ class TraktClient:
                     logger.info(f"Syncing movies since: {since_utc.isoformat(timespec='seconds').replace('+00:00', 'Z')}")
 
             # Get watched movies with history
+            # Use extended='full' to get all IDs (tmdb, imdb, etc.)
             watched = Trakt['sync/history'].movies(
-                start_at=start_at
+                start_at=start_at,
+                extended='full'
             )
 
             movies_list = []
