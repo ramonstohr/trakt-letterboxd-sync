@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, List
 from app.trakt_client import TraktClient
+from app.jellyfin_client import JellyfinClient
 from app.letterboxd_csv import LetterboxdCSV
 from app.letterboxd_client import LetterboxdClient
 from app.config_manager import ConfigManager, parse_dt
@@ -11,15 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class SyncManager:
-    """Orchestrates syncing between Trakt and Letterboxd"""
+    """Orchestrates syncing between Trakt/Jellyfin and Letterboxd"""
 
     def __init__(self, config_manager: ConfigManager):
         self.config = config_manager
         self.trakt_client = None
+        self.jellyfin_client = None
         self.letterboxd_client = None
         self.letterboxd_csv = LetterboxdCSV(
             export_path=config_manager.get('sync', 'export_path')
         )
+        self._initialize_jellyfin_client()
         self._initialize_trakt_client()
         self._initialize_letterboxd_client()
 
@@ -54,6 +57,44 @@ class SyncManager:
         except Exception as e:
             logger.error(f"Error initializing Trakt client: {e}")
 
+    def _initialize_jellyfin_client(self):
+        """Initialize Jellyfin client with credentials"""
+        try:
+            enabled = self.config.get('jellyfin', 'enabled', default=False)
+
+            if not enabled:
+                logger.info("Jellyfin integration disabled in config")
+                return
+
+            url = self.config.get('jellyfin', 'url')
+            api_key = self.config.get('jellyfin', 'api_key')
+            user_id = self.config.get('jellyfin', 'user_id')
+
+            if not url or not api_key or not user_id:
+                logger.warning("Jellyfin enabled but credentials incomplete")
+                return
+
+            logger.info("Initializing Jellyfin client:")
+            logger.info(f"  - URL: {url}")
+            logger.info(f"  - API Key: {'SET' if api_key else 'MISSING'}")
+            logger.info(f"  - User ID: {'SET' if user_id else 'MISSING'}")
+
+            self.jellyfin_client = JellyfinClient(
+                url=url,
+                api_key=api_key,
+                user_id=user_id
+            )
+
+            # Test connection
+            if self.jellyfin_client.test_connection():
+                logger.info("Jellyfin client initialized successfully")
+            else:
+                logger.error("Jellyfin connection test failed")
+                self.jellyfin_client = None
+
+        except Exception as e:
+            logger.error(f"Error initializing Jellyfin client: {e}")
+
     def _initialize_letterboxd_client(self):
         """Initialize Letterboxd client with credentials"""
         try:
@@ -76,7 +117,7 @@ class SyncManager:
 
     def sync(self, full_sync: bool = False) -> Dict:
         """
-        Perform sync from Trakt to Letterboxd
+        Perform sync from Jellyfin/Trakt to Letterboxd
 
         Args:
             full_sync: If True, sync all history. If False, only sync since last sync.
@@ -93,18 +134,28 @@ class SyncManager:
         }
 
         try:
-            if not self.trakt_client:
-                raise Exception("Trakt client not initialized. Please configure API credentials.")
+            # Determine which source to use (Jellyfin takes priority if enabled)
+            source_client = None
+            source_name = None
+
+            if self.jellyfin_client:
+                source_client = self.jellyfin_client
+                source_name = "Jellyfin"
+            elif self.trakt_client:
+                source_client = self.trakt_client
+                source_name = "Trakt"
+            else:
+                raise Exception("Neither Jellyfin nor Trakt client initialized. Please configure API credentials.")
 
             # Determine sync start date
             since = None
             if not full_sync:
                 since = self._get_sync_start_date()
 
-            logger.info(f"Starting sync (full_sync={full_sync}, since={since})")
+            logger.info(f"Starting sync from {source_name} (full_sync={full_sync}, since={since})")
 
-            # Fetch watched movies from Trakt
-            watched_movies = self.trakt_client.get_watched_movies(since=since)
+            # Fetch watched movies from source
+            watched_movies = source_client.get_watched_movies(since=since)
 
             if not watched_movies:
                 logger.info("No movies to sync")
@@ -112,14 +163,15 @@ class SyncManager:
                 result['movies_synced'] = 0
                 return result
 
-            # Fetch ratings
-            ratings = self.trakt_client.get_movie_ratings()
+            # Fetch ratings (only for Trakt source)
+            if source_name == "Trakt" and self.trakt_client:
+                ratings = self.trakt_client.get_movie_ratings()
 
-            # Merge ratings with watched movies
-            for movie in watched_movies:
-                trakt_id = str(movie.get('trakt_id', ''))
-                if trakt_id in ratings:
-                    movie['rating'] = ratings[trakt_id]
+                # Merge ratings with watched movies
+                for movie in watched_movies:
+                    trakt_id = str(movie.get('trakt_id', ''))
+                    if trakt_id in ratings:
+                        movie['rating'] = ratings[trakt_id]
 
             # Generate Letterboxd CSV
             csv_path = self.letterboxd_csv.generate_csv(watched_movies)

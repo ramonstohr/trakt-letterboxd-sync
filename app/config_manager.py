@@ -78,6 +78,12 @@ class ConfigManager:
     def _get_default_config(self):
         """Return default configuration"""
         return {
+            'jellyfin': {
+                'enabled': False,
+                'url': os.getenv('JELLYFIN_URL', 'http://localhost:8096'),
+                'api_key': os.getenv('JELLYFIN_API_KEY', ''),
+                'user_id': os.getenv('JELLYFIN_USER_ID', '')
+            },
             'trakt': {
                 'client_id': os.getenv('TRAKT_CLIENT_ID', ''),
                 'client_secret': os.getenv('TRAKT_CLIENT_SECRET', ''),
