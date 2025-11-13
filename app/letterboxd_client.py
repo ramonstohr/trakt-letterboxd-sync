@@ -398,20 +398,45 @@ class LetterboxdClient:
             if rating:
                 rating_value = str(int(rating * 2))
 
-            # Prepare data
+            # Prepare data - based on actual Letterboxd AJAX request
+            # Film ID needs 'film:' prefix and is called viewingableUid/viewingableUID
             diary_data = {
+                'json': 'true',
                 '__csrf': self.csrf_token,
-                'filmId': film_id,
+                'viewingId': '',  # Empty for new entries
+                'viewingableUid': f'film:{film_id}',
+                'specifiedDate': 'true',
                 'viewingDateStr': viewing_date_str,
-                'rating': rating_value,
-                'liked': 'true' if liked else 'false',
-                'review': '',  # Empty review
+                'review': '',
                 'tags': ','.join(tags) if tags else '',
+                'rating': rating_value,
+                'viewingableUID': f'film:{film_id}',  # Note: different casing
             }
+
+            # Add AJAX header for proper diary entry
+            self.session.headers.update({
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            })
 
             # Submit to Letterboxd
             save_url = f"{self.BASE_URL}/s/save-diary-entry"
             response = self.session.post(save_url, data=diary_data)
+
+            logger.debug(f"Diary entry response: {response.status_code}")
+            logger.debug(f"Response headers: {response.headers}")
+
+            # Check if response is JSON
+            if 'json' in response.headers.get('Content-Type', '').lower():
+                try:
+                    json_response = response.json()
+                    logger.debug(f"JSON Response: {json_response}")
+                    # Check for success in JSON
+                    if json_response.get('result') == 'success' or response.status_code == 200:
+                        logger.info(f"✓ Successfully added film {film_id} to diary")
+                        return True
+                except Exception as e:
+                    logger.warning(f"Could not parse JSON response: {e}")
 
             if response.status_code == 200:
                 logger.info(f"Successfully marked film {film_id} as watched")
